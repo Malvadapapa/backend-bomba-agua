@@ -1,42 +1,28 @@
 from flask import Flask, jsonify
 
 class ServidorAPI:
-    def __init__(self, crear_conexion_bd):
-        self.crear_conexion_bd = crear_conexion_bd
+    def __init__(self):
+        """Servidor API simplificado que delega el manejo de rutas"""
         self.app = Flask(__name__)
-        self.configurar_rutas()
-
-    def configurar_rutas(self):
-        @self.app.route('/litros_consumidos', methods=['GET'])
-        def litros_consumidos():
-            bd = self.crear_conexion_bd()
-            consulta = """
-                SELECT COALESCE(SUM(tiempo_total), 0) AS total_tiempo 
-                FROM bomba 
-                WHERE tiempo_total IS NOT NULL
-            """
-            resultado = bd.obtener(consulta)
-            bd.cerrar()
-            total_tiempo = resultado[0]['total_tiempo'] if resultado and resultado[0]['total_tiempo'] is not None else 0
-            litros_totales = total_tiempo * 15
-            return jsonify({'litros_consumidos': litros_totales})
-
-        @self.app.route('/litros_totales', methods=['GET'])
-        def litros_totales():
-            bd = self.crear_conexion_bd()
-            consulta = "SELECT COALESCE(SUM(litros), 0) AS total_litros FROM bomba"
-            resultado = bd.obtener(consulta)
-            bd.cerrar()
-            total_litros = resultado[0]['total_litros'] if resultado else 0
-            return jsonify({'litros_totales': total_litros})
-
-        @self.app.route('/activaciones', methods=['GET'])
-        def obtener_activaciones():
-            bd = self.crear_conexion_bd()
-            consulta = "SELECT * FROM bomba ORDER BY fecha_hora DESC LIMIT 10"
-            datos = bd.obtener(consulta)
-            bd.cerrar()
-            return jsonify(datos)
-
-    def iniciar(self, host="0.0.0.0", puerto=5000, debug=True):
+        self.rutas = {}
+        
+    def registrar_ruta(self, ruta, metodo, funcion, nombre=None):
+        """
+        Registra una nueva ruta en la API
+        
+        :param ruta: Path de la ruta (ej: '/temperatura')
+        :param metodo: Método HTTP ('GET', 'POST', etc.)
+        :param funcion: Función a ejecutar
+        :param nombre: Nombre opcional para la ruta
+        """
+        endpoint = nombre or f"{metodo.lower()}_{ruta.replace('/', '_')}"
+        self.app.add_url_rule(
+            ruta, 
+            endpoint=endpoint, 
+            view_func=funcion, 
+            methods=[metodo]
+        )
+        
+    def iniciar(self, host="0.0.0.0", puerto=5000, debug=False):
+        """Inicia el servidor API"""
         self.app.run(host=host, port=puerto, debug=debug)

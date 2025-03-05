@@ -1,89 +1,117 @@
 import paho.mqtt.client as mqtt
+import logging
+import uuid
+
+# Configuración de logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger('mqtt_client')
 
 class ManejadorMQTT:
-    def __init__(self, servicio_sensor, servicio_bomba, broker, puerto):
+    def __init__(self, broker, puerto, manejadores=None):
         """
-        :param servicio_sensor: Instancia de ServicioSensor.
-        :param servicio_bomba: Instancia de ServicioBomba.
-        :param broker: Dirección del broker MQTT.
-        :param puerto: Puerto del broker.
+        Cliente MQTT simplificado que delega el manejo de mensajes
+        
+        :param broker: Dirección del broker MQTT
+        :param puerto: Puerto del broker MQTT
+        :param manejadores: Diccionario de manejadores de mensajes {topico: funcion_handler}
         """
-        self.servicio_sensor = servicio_sensor
-        self.servicio_bomba = servicio_bomba
         self.broker = broker
         self.puerto = puerto
-        self.cliente = mqtt.Client(client_id="bomba_agua_cliente", clean_session=True)
-        self.cliente.on_message = self.al_recibir_mensaje
+        self.conectado = False
+        self.manejadores = manejadores or {}
+        
+        # Generar ID único
+        id_cliente = f"bomba_agua_backend_{uuid.uuid4().hex[:8]}"
+        
+        # Configurar cliente
+        self.cliente = mqtt.Client(client_id=id_cliente, clean_session=True)
         self.cliente.on_connect = self.al_conectar
-        self.cliente.on_subscribe = self.al_suscribir
-
-        # Variables para almacenar temporalmente datos de sensor.
-        self.temperatura = None
-        self.humedad = None
-
+        self.cliente.on_message = self.al_recibir_mensaje
+        self.cliente.on_disconnect = self.al_desconectar
+        self.cliente.keepalive = 60
+        
     def al_conectar(self, cliente, userdata, flags, rc):
-        print(f"Conectado al broker con código: {rc}")
+        """Callback de conexión al broker"""
+        codigos = {
+            0: "Conexión exitosa",
+            1: "Versión de protocolo incorrecta",
+            2: "ID de cliente rechazado",
+            3: "Servidor no disponible",
+            4: "Usuario/contraseña incorrectos",
+            5: "No autorizado"
+        }
+        
         if rc == 0:
-            print("Conexión exitosa")
+            self.conectado = True
+            print(f"✅ Conectado al broker MQTT: {codigos.get(rc, 'Código desconocido')} ({rc})")
+            
+            # Suscribirse a los tópicos registrados
+            topicos = [(topico, 0) for topico in self.manejadores.keys()]
+            if topicos:
+                cliente.subscribe(topicos)
+                print(f"✅ Suscrito a {len(topicos)} tópicos")
         else:
-            print(f"Error de conexión, código: {rc}")
+            print(f"❌ Error de conexión MQTT: {codigos.get(rc, 'Error desconocido')} ({rc})")
 
-    def al_suscribir(self, cliente, userdata, mid, granted_qos):
-        print(f"Suscripción confirmada. MID: {mid}, QoS: {granted_qos}")
-
-    def conectar(self):
-        print(f"Intentando conectar a {self.broker}:{self.puerto}")
-        self.cliente.connect(self.broker, self.puerto)
-        temas = [
-            ("bomba_agua_mqtt/temperatura", 1),  # Cambiado a QoS 1
-            ("bomba_agua_mqtt/humedad", 1),      # Cambiado a QoS 1
-            ("bomba_agua_mqtt/tiempo_motor", 1)  # Cambiado a QoS 1
-        ]
-        self.cliente.subscribe(temas)
+    def al_desconectar(self, cliente, userdata, rc):
+        """Callback de desconexión"""
+        self.conectado = False
+        if rc != 0:
+            print(f"❌ Desconexión inesperada del broker MQTT (código {rc})")
+        else:
+            print("Desconectado del broker MQTT")
 
     def al_recibir_mensaje(self, cliente, userdata, mensaje):
-        tema = mensaje.topic
-        valor = mensaje.payload.decode()
-        print(f"Mensaje recibido - Tema: {tema}, Valor: {valor}")  # Debug
+        """Delegación del mensaje al manejador correspondiente"""
+        topico = mensaje.topic
+        try:
+            if topico in self.manejadores:
+                print(f"📨 Mensaje recibido en tópico: {topico}")
+                self.manejadores[topico](cliente, mensaje)
+            else:
+                print(f"⚠️ Mensaje recibido en tópico sin manejador: {topico}")
+        except Exception as e:
+            print(f"❌ Error procesando mensaje ({topico}): {e}")
 
-        if tema == "bomba_agua_mqtt/temperatura":
-            try:
-                self.temperatura = float(valor)
-                print(f"Temperatura guardada: {self.temperatura}")  # Debug
-                if self.humedad is not None:
-                    self.servicio_sensor.registrar_lectura(self.temperatura, self.humedad)
-                    self.temperatura = None
-                    self.humedad = None
-            except ValueError as e:
-                print(f"Error al procesar temperatura: {e}")
-                return
+    def registrar_handler(self, topico, funcion):
+        """Registra un manejador para un tópico específico"""
+        self.manejadores[topico] = funcion
+        if self.conectado:
+            self.cliente.subscribe(topico)
+            print(f"Suscripción añadida a tópico: {topico}")
+        
+    def conectar(self):
+        """Conecta al broker MQTT"""
+        print(f"Conectando a broker MQTT: {self.broker}:{self.puerto}")
+        try:
+            self.cliente.connect(self.broker, self.puerto)
+        except Exception as e:
+            print(f"❌ Error al conectar con broker MQTT: {e}")
+            raise
 
-        elif tema == "bomba_agua_mqtt/humedad":
-            try:
-                self.humedad = float(valor)
-                print(f"Humedad guardada: {self.humedad}")  # Debug
-                if self.temperatura is not None:
-                    self.servicio_sensor.registrar_lectura(self.temperatura, self.humedad)
-                    self.temperatura = None
-                    self.humedad = None
-            except ValueError as e:
-                print(f"Error al procesar humedad: {e}")
-                return
-
-        elif tema == "bomba_agua_mqtt/tiempo_motor":
-            try:
-                tiempo_total = float(valor)
-                print(f"Tiempo motor recibido: {tiempo_total}")  # Debug
-                
-                # Registrar la activación en la base de datos
-                self.servicio_bomba.registrar_activacion(tiempo_total)
-
-                # Publicar los litros consumidos
-                litros = tiempo_total * 15
-                cliente.publish("bomba_agua_mqtt/litros_consumidos", str(litros))
-            except ValueError as e:
-                print(f"Error al procesar tiempo motor: {e}")
-                return
-
+    def publicar(self, topico, mensaje):
+        """Publica un mensaje en un tópico"""
+        try:
+            self.cliente.publish(topico, mensaje)
+            print(f"📤 Mensaje publicado en {topico}")
+            return True
+        except Exception as e:
+            print(f"❌ Error al publicar en {topico}: {e}")
+            return False
+            
     def iniciar_bucle(self):
-        self.cliente.loop_forever()
+        """Inicia el bucle de procesamiento MQTT"""
+        print("Iniciando bucle MQTT...")
+        try:
+            self.cliente.loop_forever()
+        except KeyboardInterrupt:
+            print("Bucle MQTT detenido por usuario")
+        except Exception as e:
+            print(f"❌ Error en bucle MQTT: {e}")
+        finally:
+            if self.conectado:
+                self.cliente.disconnect()
