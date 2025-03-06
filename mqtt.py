@@ -1,14 +1,5 @@
 import paho.mqtt.client as mqtt
-import logging
 import uuid
-
-# Configuración de logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger('mqtt_client')
 
 class ManejadorMQTT:
     def __init__(self, broker, puerto, manejadores=None):
@@ -34,7 +25,7 @@ class ManejadorMQTT:
         self.cliente.on_disconnect = self.al_desconectar
         self.cliente.keepalive = 60
         
-    def al_conectar(self, cliente, userdata, flags, rc):
+    def al_conectar(self, cliente_mqtt, datos_usuario, banderas_conexion, codigo_resultado):
         """Callback de conexión al broker"""
         codigos = {
             0: "Conexión exitosa",
@@ -45,47 +36,48 @@ class ManejadorMQTT:
             5: "No autorizado"
         }
         
-        if rc == 0:
+        if codigo_resultado == 0:
             self.conectado = True
-            print(f"✅ Conectado al broker MQTT: {codigos.get(rc, 'Código desconocido')} ({rc})")
+            print(f"✅ Conectado al broker MQTT: {codigos.get(codigo_resultado, 'Código desconocido')} ({codigo_resultado})")
             
             # Suscribirse a los tópicos registrados
             topicos = [(topico, 0) for topico in self.manejadores.keys()]
             if topicos:
-                cliente.subscribe(topicos)
+                cliente_mqtt.subscribe(topicos)
                 print(f"✅ Suscrito a {len(topicos)} tópicos")
         else:
-            print(f"❌ Error de conexión MQTT: {codigos.get(rc, 'Error desconocido')} ({rc})")
+            print(f"❌ Error de conexión MQTT: {codigos.get(codigo_resultado, 'Error desconocido')} ({codigo_resultado})")
 
-    def al_desconectar(self, cliente, userdata, rc):
+    def al_desconectar(self, cliente_mqtt, datos_usuario, codigo_resultado):
         """Callback de desconexión"""
         self.conectado = False
-        if rc != 0:
-            print(f"❌ Desconexión inesperada del broker MQTT (código {rc})")
+        if codigo_resultado != 0:
+            print(f"❌ Desconexión inesperada del broker MQTT (código {codigo_resultado})")
         else:
             print("Desconectado del broker MQTT")
 
-    def al_recibir_mensaje(self, cliente, userdata, mensaje):
+    def al_recibir_mensaje(self, cliente_mqtt, datos_usuario, mensaje_mqtt):
         """Delegación del mensaje al manejador correspondiente"""
-        topico = mensaje.topic
+        topico = mensaje_mqtt.topic
         try:
             if topico in self.manejadores:
                 print(f"📨 Mensaje recibido en tópico: {topico}")
-                self.manejadores[topico](cliente, mensaje)
+                self.manejadores[topico](cliente_mqtt, mensaje_mqtt)
             else:
                 print(f"⚠️ Mensaje recibido en tópico sin manejador: {topico}")
-        except Exception as e:
-            print(f"❌ Error procesando mensaje ({topico}): {e}")
+        except Exception as error:
+            print(f"❌ Error procesando mensaje ({topico}): {error}")
 
-    def registrar_handler(self, topico, funcion):
+    def registrar_handler(self, topico, funcion_manejadora):
         """Registra un manejador para un tópico específico"""
-        self.manejadores[topico] = funcion
+        self.manejadores[topico] = funcion_manejadora
         if self.conectado:
             self.cliente.subscribe(topico)
             print(f"Suscripción añadida a tópico: {topico}")
         
     def conectar(self):
         """Conecta al broker MQTT"""
+        
         print(f"Conectando a broker MQTT: {self.broker}:{self.puerto}")
         try:
             self.cliente.connect(self.broker, self.puerto)

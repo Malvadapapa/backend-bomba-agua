@@ -1,9 +1,11 @@
 from flask import Flask, jsonify
+from flask_cors import CORS  
 
 class ServidorAPI:
     def __init__(self):
         """Servidor API simplificado que delega el manejo de rutas"""
         self.app = Flask(__name__)
+        CORS(self.app)  
         self.rutas = {}
         
     def registrar_ruta(self, ruta, metodo, funcion, nombre=None):

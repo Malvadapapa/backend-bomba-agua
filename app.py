@@ -1,6 +1,5 @@
 import os
 import _thread
-import logging
 from dotenv import load_dotenv
 from flask import jsonify
 from base_datos import BaseDatos
@@ -8,14 +7,6 @@ from servicio_sensor import ServicioSensor
 from servicio_bomba import ServicioBomba
 from mqtt import ManejadorMQTT
 from servidor import ServidorAPI
-
-# Configuración de logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger('app')
 
 # Cargar variables de entorno
 load_dotenv()
@@ -86,7 +77,7 @@ def intentar_registrar_lectura():
         except Exception as e:
             print(f"❌ Error al guardar en BD: {e}")
 
-# Endpoints para la API
+# Endpoints 
 def obtener_humedad():
     bd = crear_conexion_bd()
     consulta = "SELECT humedad, fecha_hora FROM sensor ORDER BY fecha_hora DESC LIMIT 20"
